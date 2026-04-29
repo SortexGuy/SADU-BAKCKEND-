@@ -1,4 +1,6 @@
 [build]
+buildCommand = "go build -ldflags=\"-w -s\" -o out ./cmd/main.go"
+
 [build.variables]
 CGO_ENABLED = "1"
 RAILPACK_BUILD_APT_PACKAGES = "gcc libc6-dev"

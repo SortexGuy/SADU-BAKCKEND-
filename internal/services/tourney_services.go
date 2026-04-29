@@ -33,7 +33,7 @@ func (s *TourneyServices) GetAllTourney(name, status string) ([]schema.TourneyGe
 	if err := query.Find(&tourneys).Error; err != nil {
 		return nil, err
 	}
-	var dtos []schema.TourneyGetBareDTO
+	dtos := []schema.TourneyGetBareDTO{}
 
 	for _, t := range tourneys {
 

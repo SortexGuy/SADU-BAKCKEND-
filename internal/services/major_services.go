@@ -19,7 +19,7 @@ func NewMajorServices() *MajorServices {
 }
 
 func (s *MajorServices) GetAllMajor(name string) ([]schema.MajorGetDTO, error) {
-	var dtos []schema.MajorGetDTO
+	dtos := []schema.MajorGetDTO{}
 	query := s.DB.Model(&schema.Major{}).Select("id", "name")
 
 	if name != "" {

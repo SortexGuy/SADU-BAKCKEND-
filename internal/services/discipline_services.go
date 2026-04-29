@@ -29,7 +29,7 @@ func (d *DisciplineServices) GetAllDisciplines(name string) ([]schema.Discipline
 	if err := query.Find(&disciplines).Error; err != nil {
 		return nil, err
 	}
-	var disciplinesDTO []schema.DisciplineGetBareDTO
+	disciplinesDTO := []schema.DisciplineGetBareDTO{}
 
 	for _, value := range disciplines {
 		disciplinesDTO = append(disciplinesDTO, schema.DisciplineGetBareDTO{

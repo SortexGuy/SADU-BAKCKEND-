@@ -1,0 +1,4 @@
+[build]
+[build.variables]
+CGO_ENABLED = "1"
+RAILPACK_BUILD_APT_PACKAGES = "gcc libc6-dev"

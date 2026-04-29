@@ -1,10 +1,10 @@
 # Render Blueprint Specification
-# See https://render.com/docs/yaml-spec for more information
+# Optimized for Render Free Tier using Turso for persistence
 services:
   - type: web
     name: sadu-backend
     runtime: go
-    # Render will automatically detect the Go version from go.mod (1.25)
+    # Render automatically detects the Go version from go.mod (1.25)
     buildCommand: go build -o bin/main cmd/main.go
     startCommand: ./bin/main
     healthCheckPath: /health
@@ -17,22 +17,13 @@ services:
         value: 8080
       - key: SECRET_KEY
         generateValue: true
-      - key: DATABASE_PATH
-        value: /data/database.db
       - key: TURSO_DATABASE_URL
-        sync: false
+        sync: false # Set your Turso URL (libsql://...) in Render Dashboard
       - key: TURSO_AUTH_TOKEN
-        sync: false
+        sync: false # Set your Turso Auth Token in Render Dashboard
       - key: ADMIN_USER
-        sync: false # Set this in Render Dashboard
+        sync: false # Set your Admin Username in Render Dashboard
       - key: ADMIN_PASS
-        sync: false # Set this in Render Dashboard
-
-    # Persistent Disk for SQLite3
-    # NOTE: Persistent Disks are not available on Render's Free Tier.
-    # If you are on the Free Tier, remove the 'disk' section below and set
-    # 'DATABASE_PATH' to 'database.db'. Note that data will be lost on restarts.
-    disk:
-      name: sqlite-data
-      mountPath: /data
-      sizeGB: 1
+        sync: false # Set your Admin Password in Render Dashboard
+      - key: DATABASE_PATH
+        value: "database.db" # Fallback local path (ephemeral in Free Tier)

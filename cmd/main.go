@@ -48,9 +48,17 @@ func main() {
 	eventHandlers := handlers.NewEventHandler(&eventService)
 
 	userService := services.UserService{DB: db}
+	if err := userService.EnsureAdminUser(); err != nil {
+		log.Printf("Error ensuring admin user: %v", err)
+	}
 	userHandlers := handlers.NewUserHandler(&userService)
 
 	r := gin.Default()
+	// Health check
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(200, gin.H{"status": "ok"})
+	})
+
 	//configuracion de CORS
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000", "https://dominio.uneg.edu.ve"}, // "https://dominio.uneg.edu.ve" es cuando tengamos algun dominio ya puesto

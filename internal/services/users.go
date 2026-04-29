@@ -59,3 +59,35 @@ func (s *UserService) LoginUser(username, password string) (string, error) {
 
 	return tokenString, nil
 }
+
+func (s *UserService) EnsureAdminUser() error {
+	username := os.Getenv("ADMIN_USER")
+	password := os.Getenv("ADMIN_PASS")
+
+	if username == "" || password == "" {
+		return nil
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	var user schema.User
+	err = s.DB.Where("username = ?", username).First(&user).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new admin
+			user = schema.User{
+				Username: username,
+				Password: string(hashedPassword),
+			}
+			return s.DB.Create(&user).Error
+		}
+		return err
+	}
+
+	// Update existing admin password
+	return s.DB.Model(&user).Update("password", string(hashedPassword)).Error
+}

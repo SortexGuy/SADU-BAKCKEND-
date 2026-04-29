@@ -2,6 +2,7 @@ package config
 
 import (
 	"log"
+	"os"
 
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 	"gorm.io/driver/sqlite"
@@ -12,13 +13,29 @@ import (
 var DB *gorm.DB
 
 func ConnectDB() {
-	var error error
+	var err error
 
-	DB, error = gorm.Open(sqlite.Open("database.db"), &gorm.Config{})
-	log.Default().Println("Token or Database URL is empty. Using local database.")
+	tursoUrl := os.Getenv("TURSO_DATABASE_URL")
+	tursoToken := os.Getenv("TURSO_AUTH_TOKEN")
 
-	if error != nil {
-		log.Fatal(error)
+	if tursoUrl != "" && tursoToken != "" {
+		dsn := tursoUrl + "?authToken=" + tursoToken
+		DB, err = gorm.Open(sqlite.Dialector{
+			DriverName: "libsql",
+			DSN:        dsn,
+		}, &gorm.Config{})
+		log.Default().Printf("Using Turso database at: %s\n", tursoUrl)
+	} else {
+		dbPath := os.Getenv("DATABASE_PATH")
+		if dbPath == "" {
+			dbPath = "database.db"
+		}
+		DB, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
+		log.Default().Printf("Using local database at: %s\n", dbPath)
+	}
+
+	if err != nil {
+		log.Fatal(err)
 	}
 }
 

@@ -19,7 +19,7 @@ func main() {
 	config.ConnectDB()
 	config.SyncDB()
 	db := config.DB
-	 port := os.Getenv("PORT")
+	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
@@ -60,8 +60,9 @@ func main() {
 	})
 
 	//configuracion de CORS
+	domain := os.Getenv("CORS_DOMAIN")
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", "https://dominio.uneg.edu.ve"}, // "https://dominio.uneg.edu.ve" es cuando tengamos algun dominio ya puesto
+		AllowOrigins:     []string{"http://localhost:3000", domain},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},
@@ -83,5 +84,3 @@ func main() {
 	r.Run(":" + port)
 	println("Exitted")
 }
-
-

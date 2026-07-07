@@ -22,8 +22,9 @@ func NewTourneyHandler(service *services.TourneyServices) *TourneyHandler {
 func (h *TourneyHandler) GetAllTourneyHandler(ctx *gin.Context) {
 	name := ctx.Query("name")
 	status := ctx.Query("status")
+	disciplineID := ctx.Query("discipline_id")
 
-	dtos, err := h.service.GetAllTourney(name, status)
+	dtos, err := h.service.GetAllTourney(name, status, disciplineID)
 	if err != nil {
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Ocurrió un problema inesperado al procesar la lista de torneos.")
 		return

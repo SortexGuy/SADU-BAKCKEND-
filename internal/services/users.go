@@ -59,3 +59,25 @@ func (s *UserService) LoginUser(username, password string) (string, error) {
 
 	return tokenString, nil
 }
+
+func (s *UserService) ChangePassword(userID uint, oldPassword, newPassword string) error {
+	var user schema.User
+	if err := s.DB.First(&user, userID).Error; err != nil {
+		return errors.New("user not found")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	if err := s.DB.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+		return err
+	}
+
+	return nil
+}

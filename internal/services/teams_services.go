@@ -19,9 +19,27 @@ func NewTeamServices() *TeamServices {
 	return &TeamServices{DB: config.DB}
 }
 
-func (s *TeamServices) GetAllTeam() ([]schema.TeamGetDTO, error) {
+func (s *TeamServices) GetAllTeam(name, category, disciplineID, universityID string, regular *bool) ([]schema.TeamGetDTO, error) {
 	var teams []schema.Team
-	if err := s.DB.Preload("Athletes").Find(&teams).Error; err != nil {
+	query := s.DB.Preload("Athletes")
+
+	if name != "" {
+		query = query.Where("name LIKE ?", "%"+name+"%")
+	}
+	if category != "" {
+		query = query.Where("category = ?", category)
+	}
+	if disciplineID != "" {
+		query = query.Where("discipline_id = ?", disciplineID)
+	}
+	if universityID != "" {
+		query = query.Where("university_id = ?", universityID)
+	}
+	if regular != nil {
+		query = query.Where("regular = ?", *regular)
+	}
+
+	if err := query.Find(&teams).Error; err != nil {
 		return nil, fmt.Errorf("listing teams: %w", err)
 	}
 

@@ -11,6 +11,11 @@ type LoginDTO struct {
 	Password string `json:"password" binding:"required"`
 }
 
+type ChangePasswordDTO struct {
+	OldPassword string `json:"oldPassword" binding:"required"`
+	NewPassword string `json:"newPassword" binding:"required,min=8"`
+}
+
 type Claims struct {
 	UserId   uint   `json:"user_id" binding:"required"`
 	Username string `json:"username"`

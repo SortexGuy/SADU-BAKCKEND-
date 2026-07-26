@@ -19,7 +19,7 @@ func NewTourneyServices() *TourneyServices {
 	return &TourneyServices{DB: config.DB}
 }
 
-func (s *TourneyServices) GetAllTourney(name, status string) ([]schema.TourneyGetBareDTO, error) {
+func (s *TourneyServices) GetAllTourney(name, status, disciplineID string) ([]schema.TourneyGetBareDTO, error) {
 	var tourneys []schema.Tourney
 	query := s.DB.Preload("Events").Preload("Discipline")
 
@@ -28,6 +28,9 @@ func (s *TourneyServices) GetAllTourney(name, status string) ([]schema.TourneyGe
 	}
 	if status != "" {
 		query = query.Where("status LIKE ?", "%"+status+"%")
+	}
+	if disciplineID != "" {
+		query = query.Where("discipline_id = ?", disciplineID)
 	}
 
 	if err := query.Find(&tourneys).Error; err != nil {

@@ -23,7 +23,7 @@ func NewAthleteService() *AthleteService {
 
 //GET  METHOD
 
-func GetAllAthletes(name, lastname, govID string) ([]schema.AthleteDTO, error) {
+func GetAllAthletes(name, lastname, govID, gender, disciplineID string) ([]schema.AthleteDTO, error) {
 	var athletes []schema.Athlete
 	query := config.DB.Model(&schema.Athlete{})
 
@@ -35,6 +35,13 @@ func GetAllAthletes(name, lastname, govID string) ([]schema.AthleteDTO, error) {
 	}
 	if govID != "" {
 		query = query.Where("gov_id LIKE ?", "%"+govID+"%")
+	}
+	if gender != "" {
+		query = query.Where("gender = ?", gender)
+	}
+	if disciplineID != "" {
+		query = query.Joins("JOIN athlete_disciplines ON athlete_disciplines.athlete_id = athletes.id").
+			Where("athlete_disciplines.discipline_id = ?", disciplineID)
 	}
 
 	if err := query.Preload("Disciplines").Find(&athletes).Error; err != nil {

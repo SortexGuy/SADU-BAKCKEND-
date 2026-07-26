@@ -25,9 +25,11 @@ func (h *AthleteHandler) GetAthletes(ctx *gin.Context) {
 	name := ctx.Query("name")
 	lastName := ctx.Query("lastname")
 	govID := ctx.Query("govid")
+	gender := ctx.Query("gender")
+	disciplineID := ctx.Query("discipline_id")
 
 
-	athletes, err := services.GetAllAthletes(name, lastName, govID)
+	athletes, err := services.GetAllAthletes(name, lastName, govID, gender, disciplineID)
 
 	if err != nil {
 		log.Printf("Error getting athletes: %v", err)

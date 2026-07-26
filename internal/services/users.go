@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"log"
 	"os"
 	"time"
 
@@ -79,6 +80,38 @@ func (s *UserService) EnsureAdminUser() error {
 		return err
 	}
 
-	// Update existing admin password
+	// El administrador ya existe. No se sobrescribe su contraseña en cada arranque:
+	// hacerlo deshacia en silencio cualquier cambio hecho desde /users/change-password,
+	// que quedaba revertido al siguiente reinicio del servidor.
+	//
+	// Para recuperar el acceso si se pierde la contraseña, arrancar una vez con
+	// ADMIN_RESET_PASSWORD=true: eso restablece la contraseña al valor de ADMIN_PASS.
+	if os.Getenv("ADMIN_RESET_PASSWORD") != "true" {
+		return nil
+	}
+
+	log.Println("ADMIN_RESET_PASSWORD=true: restableciendo la contraseña del administrador a ADMIN_PASS")
 	return s.DB.Model(&user).Update("password", string(hashedPassword)).Error
+}
+
+func (s *UserService) ChangePassword(userID uint, oldPassword, newPassword string) error {
+	var user schema.User
+	if err := s.DB.First(&user, userID).Error; err != nil {
+		return errors.New("user not found")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		return errors.New("current password is incorrect")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	if err := s.DB.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+		return err
+	}
+
+	return nil
 }

@@ -20,7 +20,7 @@ func NewTeacherService() *TeacherService {
 	return &TeacherService{DB: config.DB}
 }
 
-func (s *TeacherService) GetTeachers(name, lastname, govID string) ([]schema.TeacherGetDTO, error) {
+func (s *TeacherService) GetTeachers(name, lastname, govID, disciplineID string) ([]schema.TeacherGetDTO, error) {
 	var teachers []schema.Teacher
 	query := s.DB.Model(&schema.Teacher{})
 	if name != "" {
@@ -31,6 +31,10 @@ func (s *TeacherService) GetTeachers(name, lastname, govID string) ([]schema.Tea
 	}
 	if govID != "" {
 		query = query.Where("gov_id LIKE ?", "%"+govID+"%")
+	}
+	if disciplineID != "" {
+		query = query.Joins("JOIN teacher_disciplines ON teacher_disciplines.teacher_id = teachers.id").
+			Where("teacher_disciplines.discipline_id = ?", disciplineID)
 	}
 
 	if err := query.Preload("Disciplines").Find(&teachers).Error; err != nil {

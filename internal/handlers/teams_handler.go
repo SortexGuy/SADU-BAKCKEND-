@@ -19,7 +19,18 @@ func NewTeamHandler(service *services.TeamServices) *TeamHandler {
 }
 
 func (h *TeamHandler) GetAllTeamHandler(ctx *gin.Context) {
-	team, err := h.service.GetAllTeam()
+	name := ctx.Query("name")
+	category := ctx.Query("category")
+	disciplineID := ctx.Query("discipline_id")
+	universityID := ctx.Query("university_id")
+
+	var regular *bool
+	if reg := ctx.Query("regular"); reg != "" {
+		b := reg == "true"
+		regular = &b
+	}
+
+	team, err := h.service.GetAllTeam(name, category, disciplineID, universityID, regular)
 	if err != nil {
 
 		if strings.Contains(err.Error(), "team") && strings.Contains(err.Error(), "not found") {

@@ -34,3 +34,28 @@ func (u *UserHandler) LoginUserHandler(ctx *gin.Context) {
 
 	helpers.SendSucces(ctx, "Successfully logged in", token)
 }
+
+func (u *UserHandler) ChangePasswordHandler(ctx *gin.Context) {
+	userID, exists := ctx.Get("userId")
+	if !exists {
+		helpers.SendError(ctx, http.StatusUnauthorized, "UNAUTHORIZED", "User not authenticated")
+		return
+	}
+
+	var data schema.ChangePasswordDTO
+	if err := ctx.ShouldBindJSON(&data); err != nil {
+		helpers.SendError(ctx, http.StatusBadRequest, "INVALID_INPUT", "Invalid data")
+		return
+	}
+
+	if err := u.service.ChangePassword(userID.(uint), data.OldPassword, data.NewPassword); err != nil {
+		if err.Error() == "current password is incorrect" {
+			helpers.SendError(ctx, http.StatusBadRequest, "INVALID_PASSWORD", err.Error())
+			return
+		}
+		helpers.SendError(ctx, http.StatusInternalServerError, "ERROR", err.Error())
+		return
+	}
+
+	helpers.SendSucces(ctx, "password changed successfully", nil)
+}

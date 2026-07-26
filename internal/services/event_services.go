@@ -18,7 +18,7 @@ func NewEventService() *EventService {
 	return &EventService{DB: config.DB}
 }
 
-func (s *EventService) GetEvents(id uint, name, status string) ([]schema.EventGetDTO, error) {
+func (s *EventService) GetEvents(id uint, name, status, disciplineID, dateFrom, dateTo, teamName string) ([]schema.EventGetDTO, error) {
 
 	var event []schema.Event
 
@@ -39,6 +39,20 @@ func (s *EventService) GetEvents(id uint, name, status string) ([]schema.EventGe
 
 	if status != "" {
 		query = query.Where("status LIKE ?", "%"+status+"%")
+	}
+	if disciplineID != "" {
+		query = query.Where("discipline_id = ?", disciplineID)
+	}
+	if dateFrom != "" {
+		query = query.Where("date >= ?", dateFrom)
+	}
+	if dateTo != "" {
+		query = query.Where("date <= ?", dateTo+" 23:59:59")
+	}
+	if teamName != "" {
+		query = query.Joins("LEFT JOIN teams AS home ON events.home_team_id = home.id").
+			Joins("LEFT JOIN teams AS opposite ON events.opposite_team_id = opposite.id").
+			Where("home.name LIKE ? OR opposite.name LIKE ?", "%"+teamName+"%", "%"+teamName+"%")
 	}
 	if err := query.Find(&event).Error; err != nil {
 		return nil, fmt.Errorf("listando eventos: %w", err)

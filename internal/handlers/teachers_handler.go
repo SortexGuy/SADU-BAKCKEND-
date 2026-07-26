@@ -24,8 +24,9 @@ func (h *TeacherHandler) GetAllTeachersHandler(ctx *gin.Context) {
 	name := ctx.Query("name")
 	lastName := ctx.Query("lastName")
 	govID := ctx.Query("govID")
+	disciplineID := ctx.Query("discipline_id")
 
-	teachersDTO, err := h.service.GetTeachers(name, lastName, govID)
+	teachersDTO, err := h.service.GetTeachers(name, lastName, govID, disciplineID)
 
 	if err != nil {
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Ocurrió un problema inesperado al procesar la lista de profesores.")

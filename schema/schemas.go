@@ -65,7 +65,7 @@ type Athlete struct {
 	Gender          Gender    `gorm:"index;type:gender"`
 	InscriptionDate time.Time // Fecha de inscripcion
 	Regular         bool      // Titular
-	GovID           string    //`gorm:"unique;not null"` // Cedula
+	GovID           string    `gorm:"unique;not null"` // Cedula
 	MajorID         RegularIDs
 	Teams           []Team       `gorm:"many2many:athlete_teams;"`
 	Events          []Event      `gorm:"many2many:athlete_events;"` // foreignKey:AthleteID
@@ -80,7 +80,11 @@ type Discipline struct {
 	Events   []Event   `gorm:"foreignKey:DisciplineID"`
 	Athletes []Athlete `gorm:"many2many:athlete_disciplines;"`
 	Teachers []Teacher `gorm:"many2many:teacher_disciplines;"`
-	Tourney  []Tourney `gorm:"many2many:tourney_disicplines;"`
+	// La relacion con Tourney es uno-a-muchos y vive en Tourney.DisciplineID.
+	// Aqui estaba declarada ademas como `many2many:tourney_disicplines`, lo que
+	// creaba una tabla puente que nadie consultaba ni escribia. Se elimina sin
+	// declarar la relacion inversa para no agregar restricciones nuevas a la
+	// migracion. Ver INFORME_TECNICO.md (D9).
 }
 
 type Teacher struct {
@@ -89,7 +93,7 @@ type Teacher struct {
 	LastNames   string
 	PhoneNumber string
 	Email       string
-	GovID       string       //`gorm:"unique;not null"` // Cedula
+	GovID       string       `gorm:"unique;not null"` // Cedula
 	Events      []Event      `gorm:"foreignKey:ResponsableTeacherID"`
 	Disciplines []Discipline `gorm:"many2many:teacher_disciplines;"`
 }

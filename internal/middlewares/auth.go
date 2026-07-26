@@ -2,16 +2,14 @@ package middlewares
 
 import (
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 
 	"github.com/dgrijalva/jwt-go"
 	"github.com/gin-gonic/gin"
+	"uneg.edu.ve/servicio-sadu-back/config"
 	"uneg.edu.ve/servicio-sadu-back/helpers"
 )
-
-var jwtKey = []byte(os.Getenv("SECRET_KEY"))
 
 var ignoreRoutesOfVerification = []string{
 	"/users/id/:id",
@@ -19,12 +17,6 @@ var ignoreRoutesOfVerification = []string{
 
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if len(jwtKey) == 0 {
-			jwtKey = []byte(os.Getenv("SECRET_KEY"))
-			if len(jwtKey) == 0 {
-				jwtKey = []byte("tu_clave_secreta")
-			}
-		}
 		tokenString := c.GetHeader("Authorization")
 		if tokenString == "" {
 			helpers.SendError(c, http.StatusUnauthorized,"Error", "Token no proporcionado")
@@ -37,7 +29,7 @@ func AuthMiddleware() gin.HandlerFunc {
 		tokenString = strings.TrimSpace(tokenString)
 
 		token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-			return jwtKey, nil
+			return config.SecretKey(), nil
 		})
 
 		if err != nil || !token.Valid {

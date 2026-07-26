@@ -33,7 +33,7 @@ func (s *EventService) GetEvents(id uint, name, status string) ([]schema.EventGe
 	if id != 0 {
 		query = query.Where("events.id = ?", id)
 	}
-	if name != " " {
+	if name != "" {
 		query = query.Where("name LIKE ?", "%"+name+"%")
 	}
 
@@ -41,7 +41,7 @@ func (s *EventService) GetEvents(id uint, name, status string) ([]schema.EventGe
 		query = query.Where("status LIKE ?", "%"+status+"%")
 	}
 	if err := query.Find(&event).Error; err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("listando eventos: %w", err)
 	}
 
 	dto := helpers.MapEventsGetDTO(event)

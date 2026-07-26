@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 
@@ -58,6 +59,22 @@ func (h *AthleteHandler) CreateNewAthlete(ctx *gin.Context) {
 
 	createdAthlete, err := h.service.CreateAthlete(newAthlete)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el atleta: la carrera, el equipo o la disciplina indicada no existe.")
+			return
+		}
+		if errors.Is(err, services.ErrMissingGovID) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Cédula obligatoria", "El atleta debe tener una cédula para poder registrarlo.")
+			return
+		}
+		if errors.Is(err, services.ErrMissingMajor) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Carrera obligatoria", "Debes indicar la carrera que cursa el atleta.")
+			return
+		}
+		if errors.Is(err, services.ErrDuplicateGovID) {
+			helpers.SendError(ctx, http.StatusConflict, "Cédula duplicada", "Ya existe un atleta registrado con esa cédula.")
+			return
+		}
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Dato incorrecto ingresado, el atleta ya fue creado O problema inesperado")
 		return
 	}
@@ -73,6 +90,14 @@ func (h *AthleteHandler) EditAthleteByID(ctx *gin.Context) {
 	}
 	updateAthlete, err := h.service.EditAthlete(athlete, ctx)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el atleta: la carrera, el equipo o la disciplina indicada no existe.")
+			return
+		}
+		if errors.Is(err, services.ErrDuplicateGovID) {
+			helpers.SendError(ctx, http.StatusConflict, "Cédula duplicada", "Ya existe otro atleta registrado con esa cédula.")
+			return
+		}
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Datos incorrectos ingresados en la edicion de atletas")
 		return
 	}

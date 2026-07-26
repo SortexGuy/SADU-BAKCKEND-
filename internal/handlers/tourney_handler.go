@@ -63,6 +63,10 @@ func (h *TourneyHandler) CreateTourneyHandler(ctx *gin.Context) {
 	}
 	createdTourney, err := h.service.CreateTourney(newTourney)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el torneo: la disciplina indicada no existe.")
+			return
+		}
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "El inesperado a la hora de crear torneo.")
 		return
 	}
@@ -95,6 +99,10 @@ func (h *TourneyHandler) UpdateTourneyHandler(ctx *gin.Context) {
 	
 	updatedTourney, err := h.service.UpdateTourney(tourneyUpdate, ctx)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el torneo: la disciplina indicada no existe.")
+			return
+		}
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "El inesperado a la hora de editar torneo.")
 		return
 

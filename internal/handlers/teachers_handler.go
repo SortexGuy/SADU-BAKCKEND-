@@ -60,6 +60,18 @@ func (h *TeacherHandler) CreateTeacherHandler(ctx *gin.Context) {
 
 	dto, err := h.service.CreateTeacher(teacher)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el profesor: alguna de las disciplinas indicadas no existe.")
+			return
+		}
+		if errors.Is(err, services.ErrMissingGovID) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Cédula obligatoria", "El profesor debe tener una cédula para poder registrarlo.")
+			return
+		}
+		if errors.Is(err, services.ErrDuplicateGovID) {
+			helpers.SendError(ctx, http.StatusConflict, "Cédula duplicada", "Ya existe un profesor registrado con esa cédula.")
+			return
+		}
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Datos incorrectos ingresados en la creacion del profesor.")
 		return
 	}
@@ -77,6 +89,14 @@ func (h *TeacherHandler) UpdateTeacherHandler(ctx *gin.Context) {
 
 	teacher, err := h.service.EditTeacher(ctx, teacher)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el profesor: alguna de las disciplinas indicadas no existe.")
+			return
+		}
+		if errors.Is(err, services.ErrDuplicateGovID) {
+			helpers.SendError(ctx, http.StatusConflict, "Cédula duplicada", "Ya existe otro profesor registrado con esa cédula.")
+			return
+		}
 		if strings.Contains(err.Error(), "no encontrado") {
 			helpers.SendError(ctx, http.StatusNotFound, "Error de busqueda en la base de datos", "Los datos del profesor no fueron encontrado o el profesor fue eliminado anteriormente.")
 		} else {

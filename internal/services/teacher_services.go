@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -76,11 +77,45 @@ func (s *TeacherService) GetTeacherById(ctx *gin.Context) (schema.TeacherGetDTO,
 	}, nil
 }
 
+// govIDTaken indica si otro profesor distinto de excludeID ya usa esa cedula.
+// Las cedulas vacias no se validan, igual que en atletas.
+func (s *TeacherService) govIDTaken(govID string, excludeID uint) (bool, error) {
+	if strings.TrimSpace(govID) == "" {
+		return false, nil
+	}
+
+	query := s.DB.Model(&schema.Teacher{}).Where("gov_id = ?", govID)
+	if excludeID != 0 {
+		query = query.Where("id <> ?", excludeID)
+	}
+
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
 func (s *TeacherService) CreateTeacher(t schema.Teacher) (schema.Teacher, error) {
 
-	err := s.DB.Transaction(func(tx *gorm.DB) error {
+	if strings.TrimSpace(t.GovID) == "" {
+		return schema.Teacher{}, ErrMissingGovID
+	}
+
+	taken, err := s.govIDTaken(t.GovID, 0)
+	if err != nil {
+		return schema.Teacher{}, err
+	}
+	if taken {
+		return schema.Teacher{}, ErrDuplicateGovID
+	}
+
+	err = s.DB.Transaction(func(tx *gorm.DB) error {
 
 		if err := tx.Set("gorm:save_associations", true).Create(&t).Error; err != nil {
+			if isUniqueViolation(err) {
+				return ErrDuplicateGovID
+			}
 			return err
 		}
 		return tx.Preload("Disciplines").Preload("Events").First(&t, t.ID).Error
@@ -103,7 +138,15 @@ func (s *TeacherService) EditTeacher(ctx *gin.Context, t schema.Teacher) (schema
 	}
 
 	if err := s.DB.First(&teacher, teacherID).Error; err != nil {
-		return schema.Teacher{}, fmt.Errorf("atleta no encontrado: %d", teacherID)
+		return schema.Teacher{}, fmt.Errorf("profesor no encontrado: %d", teacherID)
+	}
+
+	taken, err := s.govIDTaken(t.GovID, teacher.ID)
+	if err != nil {
+		return schema.Teacher{}, err
+	}
+	if taken {
+		return schema.Teacher{}, ErrDuplicateGovID
 	}
 
 	//Actualizar campos escalares

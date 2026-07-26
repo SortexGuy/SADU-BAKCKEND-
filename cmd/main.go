@@ -16,6 +16,10 @@ import (
 
 func main() {
 	config.LoadEnv()
+	if len(config.SecretKey()) == 0 {
+		log.Fatal("SECRET_KEY no esta definida. Configurala en el archivo .env o en las " +
+			"variables de entorno del despliegue: el servidor no arranca sin ella.")
+	}
 	config.ConnectDB()
 	config.SyncDB()
 	db := config.DB
@@ -60,9 +64,14 @@ func main() {
 	})
 
 	//configuracion de CORS
-	domain := os.Getenv("CORS_DOMAIN")
+	// Solo se agrega CORS_DOMAIN si tiene valor: una cadena vacia en la lista de
+	// origenes hace que gin-contrib/cors entre en panic al arrancar.
+	origins := []string{"http://localhost:3000"}
+	if domain := os.Getenv("CORS_DOMAIN"); domain != "" {
+		origins = append(origins, domain)
+	}
 	r.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"http://localhost:3000", domain},
+		AllowOrigins:     origins,
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
 		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization"},
 		ExposeHeaders:    []string{"Content-Length"},

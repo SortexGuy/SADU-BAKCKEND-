@@ -37,6 +37,17 @@ func (h *EventHandler) GetEventsHandler(ctx *gin.Context) {
 		return
 	}
 
+	// El detalle devuelve un objeto, no un arreglo de un elemento, igual que el
+	// resto de los recursos.
+	if idParam != "" {
+		if len(events) == 0 {
+			helpers.SendError(ctx, http.StatusNotFound, "Error de busqueda en la base de datos", "El ID del evento esta mal escrito o no existe.")
+			return
+		}
+		helpers.SendSucces(ctx, "GET-EVENT-BY-ID", events[0])
+		return
+	}
+
 	helpers.SendSucces(ctx, "LISTIN-EVENTS-SUCCESFULLY", events)
 }
 
@@ -51,6 +62,10 @@ func (h *EventHandler) CreateEventHandler(ctx *gin.Context) {
 
 	createdEvent, err := h.service.CreateEvent(dto)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el evento: el equipo local, el visitante, el torneo, el profesor o la disciplina indicada no existe.")
+			return
+		}
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "No se pudo procesar la creación del evento en el servidor")
 		return
 	}
@@ -70,6 +85,10 @@ func (h *EventHandler) EditEventHandler(ctx *gin.Context) {
 
 	updatedEvent, err := h.service.EditEvent(ctx,dto)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el evento: el equipo local, el visitante, el torneo, el profesor o la disciplina indicada no existe.")
+			return
+		}
 		fmt.Printf("Error en el servicio EditEvent: %v\n", err)
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Datos incorrectos ingresados en la edicion de atletas")
 		return

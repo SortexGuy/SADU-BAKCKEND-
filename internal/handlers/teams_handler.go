@@ -63,6 +63,10 @@ func (h *TeamHandler) CreateTeamHandler(ctx *gin.Context) {
 
 	team, err := h.service.CreateTeam(input)
 	if err != nil {
+		if services.IsInvalidReference(err) {
+			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el equipo: la disciplina o la universidad indicada no existe.")
+			return
+		}
 		errLower := strings.ToLower(err.Error())
 		if strings.Contains(errLower, "not found") ||
 			strings.Contains(errLower, "duplicate") ||

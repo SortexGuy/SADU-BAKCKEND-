@@ -20,8 +20,6 @@ func NewUserService() *UserService {
 	return &UserService{DB: config.DB}
 }
 
-var jwtKey = []byte(os.Getenv("SECRET_KEY"))
-
 func (s *UserService) LoginUser(username, password string) (string, error) {
 	var user schema.User
 
@@ -35,13 +33,6 @@ func (s *UserService) LoginUser(username, password string) (string, error) {
 		return "", errors.New("invalid credentials")
 	}
 
-	if len(jwtKey) == 0 {
-		jwtKey = []byte(os.Getenv("SECRET_KEY"))
-		if len(jwtKey) == 0 {
-			jwtKey = []byte("tu_clave_secreta")
-		}
-	}
-
 	expirationTime := time.Now().Add(24 * time.Hour) // 24h
 	var claims = schema.Claims{
 		UserId:   user.ID,
@@ -52,7 +43,7 @@ func (s *UserService) LoginUser(username, password string) (string, error) {
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	tokenString, err := token.SignedString(jwtKey)
+	tokenString, err := token.SignedString(config.SecretKey())
 	if err != nil {
 		return "", err
 	}

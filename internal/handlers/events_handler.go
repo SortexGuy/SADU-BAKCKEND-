@@ -33,8 +33,9 @@ func (h *EventHandler) GetEventsHandler(ctx *gin.Context) {
 	dateFrom := ctx.Query("date_from")
 	dateTo := ctx.Query("date_to")
 	teamName := ctx.Query("team_name")
+	universityID := ctx.Query("university_id")
 
-	events, err := h.service.GetEvents(id, name, status, disciplineID, dateFrom, dateTo, teamName)
+	events, err := h.service.GetEvents(id, name, status, disciplineID, dateFrom, dateTo, teamName, universityID)
 
 	if err != nil {
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Ocurrió un problema inesperado al procesar la lista de Eventos.")

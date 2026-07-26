@@ -23,13 +23,14 @@ func NewAthleteHandler(service *services.AthleteService) *AthleteHandler {
 
 func (h *AthleteHandler) GetAthletes(ctx *gin.Context) {
 	name := ctx.Query("name")
-	lastName := ctx.Query("lastname")
-	govID := ctx.Query("govid")
+	lastName := ctx.Query("last_name")
+	govID := ctx.Query("gov_id")
 	gender := ctx.Query("gender")
 	disciplineID := ctx.Query("discipline_id")
+	search := ctx.Query("search")
 
 
-	athletes, err := services.GetAllAthletes(name, lastName, govID, gender, disciplineID)
+	athletes, err := services.GetAllAthletes(name, lastName, govID, gender, disciplineID, search)
 
 	if err != nil {
 		log.Printf("Error getting athletes: %v", err)

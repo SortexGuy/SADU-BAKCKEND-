@@ -23,10 +23,17 @@ func NewAthleteService() *AthleteService {
 
 //GET  METHOD
 
-func GetAllAthletes(name, lastname, govID, gender, disciplineID string) ([]schema.AthleteDTO, error) {
+func GetAllAthletes(name, lastname, govID, gender, disciplineID, search string) ([]schema.AthleteDTO, error) {
 	var athletes []schema.Athlete
 	query := config.DB.Model(&schema.Athlete{})
 
+	// `search` es el buscador unico de la interfaz: coincide con nombre, apellido o
+	// cedula. Los parentesis son necesarios para que el OR no se mezcle con los
+	// demas filtros, que se combinan con AND.
+	if search != "" {
+		patron := "%" + search + "%"
+		query = query.Where("(first_names LIKE ? OR last_names LIKE ? OR gov_id LIKE ?)", patron, patron, patron)
+	}
 	if name != "" {
 		query = query.Where("first_names LIKE ?", "%"+name+"%")
 	}
@@ -123,24 +130,41 @@ func (s *AthleteService) CreateAthlete(a schema.Athlete) (schema.Athlete, error)
 		return a, ErrDuplicateGovID
 	}
 
-	if err := s.DB.Omit("Teams", "Events", "Disciplines").Create(&a).Error; err != nil {
-		if isUniqueViolation(err) {
-			return a, ErrDuplicateGovID
+	// El alta y sus asociaciones van en una transaccion: si una vinculacion falla
+	// (por ejemplo, un equipo que no existe) no queda un atleta a medio crear.
+	// Antes los errores de Association se descartaban, asi que un fallo devolvia 200
+	// y la vinculacion simplemente no aparecia.
+	err = s.DB.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Omit("Teams", "Events", "Disciplines").Create(&a).Error; err != nil {
+			if isUniqueViolation(err) {
+				return ErrDuplicateGovID
+			}
+			return err
 		}
+
+		if len(a.Disciplines) > 0 {
+			if err := tx.Model(&a).Association("Disciplines").Append(a.Disciplines); err != nil {
+				return fmt.Errorf("asociando disciplinas: %w", err)
+			}
+		}
+
+		if len(a.Events) > 0 {
+			if err := tx.Model(&a).Association("Events").Append(a.Events); err != nil {
+				return fmt.Errorf("asociando eventos: %w", err)
+			}
+		}
+
+		if len(a.Teams) > 0 {
+			if err := tx.Model(&a).Association("Teams").Append(a.Teams); err != nil {
+				return fmt.Errorf("asociando equipos: %w", err)
+			}
+		}
+		return nil
+	})
+	if err != nil {
 		return a, err
 	}
 
-	if len(a.Disciplines) > 0 {
-		s.DB.Model(&a).Preload("Disciplines").Association("Disciplines").Append(a.Disciplines)
-	}
-
-	if len(a.Events) > 0 {
-		s.DB.Model(&a).Preload("Events").Association("Events").Append(a.Events)
-	}
-
-	if len(a.Teams) > 0 {
-		s.DB.Model(&a).Preload("Teams").Association("Teams").Append(a.Teams)
-	}
 	return a, nil
 }
 
@@ -169,15 +193,22 @@ func (s *AthleteService) EditAthlete(a schema.Athlete, ctx *gin.Context) (schema
 	//Actualizar campos escalares
 	s.DB.Model(&athlete).Updates(&a)
 
+	// Igual que en el alta: si una vinculacion falla hay que enterarse.
 	if len(a.Teams) > 0 {
-		s.DB.Model(&athlete).Association("Teams").Replace(a.Teams)
+		if err := s.DB.Model(&athlete).Association("Teams").Replace(a.Teams); err != nil {
+			return schema.Athlete{}, fmt.Errorf("asociando equipos: %w", err)
+		}
 	}
 
 	if len(a.Disciplines) > 0 {
-		s.DB.Model(&athlete).Association("Disciplines").Replace(a.Disciplines)
+		if err := s.DB.Model(&athlete).Association("Disciplines").Replace(a.Disciplines); err != nil {
+			return schema.Athlete{}, fmt.Errorf("asociando disciplinas: %w", err)
+		}
 	}
 	if len(a.Events) > 0 {
-		s.DB.Model(&athlete).Association("Events").Replace(a.Events)
+		if err := s.DB.Model(&athlete).Association("Events").Replace(a.Events); err != nil {
+			return schema.Athlete{}, fmt.Errorf("asociando eventos: %w", err)
+		}
 	}
 
 	return athlete, s.DB.Preload("Teams").Preload("Disciplines").Preload("Events").First(&athlete, athleteID).Error

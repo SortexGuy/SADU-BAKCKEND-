@@ -20,9 +20,15 @@ func NewTeacherService() *TeacherService {
 	return &TeacherService{DB: config.DB}
 }
 
-func (s *TeacherService) GetTeachers(name, lastname, govID, disciplineID string) ([]schema.TeacherGetDTO, error) {
+func (s *TeacherService) GetTeachers(name, lastname, govID, disciplineID, search string) ([]schema.TeacherGetDTO, error) {
 	var teachers []schema.Teacher
 	query := s.DB.Model(&schema.Teacher{})
+
+	// Buscador unico de la interfaz: nombre, apellido o cedula. Ver GetAllAthletes.
+	if search != "" {
+		patron := "%" + search + "%"
+		query = query.Where("(first_names LIKE ? OR last_names LIKE ? OR gov_id LIKE ?)", patron, patron, patron)
+	}
 	if name != "" {
 		query = query.Where("first_names LIKE ?", "%"+name+"%")
 	}

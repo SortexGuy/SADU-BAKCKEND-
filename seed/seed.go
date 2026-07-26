@@ -390,7 +390,7 @@ func seedDatabase(db *gorm.DB) error {
 			athleteEvents = append(athleteEvents, AthleteEvent{
 				AthleteID: schema.RegularIDs(atletas[athleteIndex].ID),
 				EventID:   schema.RegularIDs(evento.ID),
-				TeamID:    teamID,
+				TeamID:    &teamID,
 				CreatedAt: time.Now(),
 				UpdatedAt: time.Now(),
 			})

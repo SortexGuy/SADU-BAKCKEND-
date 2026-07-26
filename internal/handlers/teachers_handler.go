@@ -22,11 +22,12 @@ func NewTeacherHandler(service *services.TeacherService) *TeacherHandler {
 func (h *TeacherHandler) GetAllTeachersHandler(ctx *gin.Context) {
 
 	name := ctx.Query("name")
-	lastName := ctx.Query("lastName")
-	govID := ctx.Query("govID")
+	lastName := ctx.Query("last_name")
+	govID := ctx.Query("gov_id")
 	disciplineID := ctx.Query("discipline_id")
+	search := ctx.Query("search")
 
-	teachersDTO, err := h.service.GetTeachers(name, lastName, govID, disciplineID)
+	teachersDTO, err := h.service.GetTeachers(name, lastName, govID, disciplineID, search)
 
 	if err != nil {
 		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Ocurrió un problema inesperado al procesar la lista de profesores.")

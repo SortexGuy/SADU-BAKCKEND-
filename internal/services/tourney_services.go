@@ -86,13 +86,23 @@ func (s *TourneyServices) GetTourneyByID(ctx *gin.Context) (schema.TourneyGetFul
 
 func (s *TourneyServices) CreateTourney(t schema.Tourney) (schema.Tourney, error) {
 
-	result := s.DB.Omit("Events").Omit("Discipline").Create(&t)
+	// La disciplina es opcional (el formulario de torneos todavia no la pide). Sin
+	// ella la columna debe quedar en NULL: un 0 no referencia ninguna disciplina y
+	// la clave foranea lo rechaza.
+	omitir := []string{"Events", "Discipline"}
+	if t.DisciplineID == 0 {
+		omitir = append(omitir, "DisciplineID")
+	}
+
+	result := s.DB.Omit(omitir...).Create(&t)
 	if result.Error != nil || result.RowsAffected == 0 {
 		return schema.Tourney{}, result.Error
 	}
 
 	if len(t.Events) > 0 {
-		s.DB.Model(&t).Preload("Events").Preload("Discipline").Association("Events").Append(t.Events)
+		if err := s.DB.Model(&t).Association("Events").Append(t.Events); err != nil {
+			return schema.Tourney{}, fmt.Errorf("asociando eventos al torneo: %w", err)
+		}
 	}
 
 	s.DB.Preload("Events").Preload("Discipline").First(&t, t.ID)

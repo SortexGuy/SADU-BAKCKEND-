@@ -169,7 +169,10 @@ type TeacherDiscipline struct {
 type AthleteEvent struct {
 	AthleteID RegularIDs `gorm:"primaryKey"`
 	EventID   RegularIDs `gorm:"primaryKey;index"`
-	TeamID    RegularIDs
+	// Equipo con el que el atleta participo en el evento. Es un puntero porque al
+	// vincular un atleta a un evento no siempre se conoce el equipo: en ese caso la
+	// columna queda en NULL. Un 0 violaria la clave foranea hacia teams.
+	TeamID *RegularIDs
 	CreatedAt time.Time
 	UpdatedAt time.Time
 	DeletedAt gorm.DeletedAt

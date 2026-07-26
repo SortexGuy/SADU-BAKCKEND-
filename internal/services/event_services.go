@@ -18,7 +18,7 @@ func NewEventService() *EventService {
 	return &EventService{DB: config.DB}
 }
 
-func (s *EventService) GetEvents(id uint, name, status, disciplineID, dateFrom, dateTo, teamName string) ([]schema.EventGetDTO, error) {
+func (s *EventService) GetEvents(id uint, name, status, disciplineID, dateFrom, dateTo, teamName, universityID string) ([]schema.EventGetDTO, error) {
 
 	var event []schema.Event
 
@@ -49,10 +49,18 @@ func (s *EventService) GetEvents(id uint, name, status, disciplineID, dateFrom, 
 	if dateTo != "" {
 		query = query.Where("date <= ?", dateTo+" 23:59:59")
 	}
-	if teamName != "" {
+	// Los filtros por nombre de equipo y por universidad necesitan las mismas dos
+	// uniones, asi que se agregan una sola vez si alguno esta activo.
+	if teamName != "" || universityID != "" {
 		query = query.Joins("LEFT JOIN teams AS home ON events.home_team_id = home.id").
-			Joins("LEFT JOIN teams AS opposite ON events.opposite_team_id = opposite.id").
-			Where("home.name LIKE ? OR opposite.name LIKE ?", "%"+teamName+"%", "%"+teamName+"%")
+			Joins("LEFT JOIN teams AS opposite ON events.opposite_team_id = opposite.id")
+	}
+	if teamName != "" {
+		// Los parentesis evitan que el OR se mezcle con los filtros combinados con AND.
+		query = query.Where("(home.name LIKE ? OR opposite.name LIKE ?)", "%"+teamName+"%", "%"+teamName+"%")
+	}
+	if universityID != "" {
+		query = query.Where("(home.university_id = ? OR opposite.university_id = ?)", universityID, universityID)
 	}
 	if err := query.Find(&event).Error; err != nil {
 		return nil, fmt.Errorf("listando eventos: %w", err)
@@ -91,8 +99,15 @@ func (s *EventService) CreateEvent(dto schema.EventPOSTandPUTDTO) (schema.Event,
 
 	tx := s.DB.Begin()
 
-	if err := tx.Omit("HomeTeam", "OppositeTeam", "Tourney", "ResponsableTeacher", "Discipline", "Athletes").
-		Create(&event).Error; err != nil {
+	// El torneo es opcional (el formulario de eventos no lo pide). Si no viene, la
+	// columna se omite para que quede en NULL: un 0 no referencia a ningun torneo y
+	// la clave foranea lo rechaza.
+	omitir := []string{"HomeTeam", "OppositeTeam", "Tourney", "ResponsableTeacher", "Discipline", "Athletes"}
+	if dto.TourneyID == 0 {
+		omitir = append(omitir, "TourneyID")
+	}
+
+	if err := tx.Omit(omitir...).Create(&event).Error; err != nil {
 		tx.Rollback()
 		return schema.Event{}, err
 	}
@@ -117,8 +132,7 @@ func (s *EventService) EditEvent(ctx *gin.Context, dto schema.EventPOSTandPUTDTO
 		return schema.Event{}, fmt.Errorf("evento no encontrado: %w", err)
 	}
 
-	tx := s.DB.Begin()
-	err := tx.Model(&existingEvent).Omit("Athletes").Updates(map[string]interface{}{
+	campos := map[string]interface{}{
 		"Name":                 dto.Name,
 		"Date":                 dto.Date,
 		"Status":               dto.Status,
@@ -128,10 +142,18 @@ func (s *EventService) EditEvent(ctx *gin.Context, dto schema.EventPOSTandPUTDTO
 		"OppositePoints":       dto.OppositePoints,
 		"HomeTeamID":           dto.HomeTeamID,
 		"OppositeTeamID":       dto.OppositeTeamID,
-		"TourneyID":            dto.TourneyID,
 		"ResponsableTeacherID": dto.ResponsableTeacherID,
 		"DisciplineID":         dto.DisciplineID,
-	}).Error
+	}
+	// Sin torneo se guarda NULL, no 0. Ver CreateEvent.
+	if dto.TourneyID == 0 {
+		campos["TourneyID"] = nil
+	} else {
+		campos["TourneyID"] = dto.TourneyID
+	}
+
+	tx := s.DB.Begin()
+	err := tx.Model(&existingEvent).Omit("Athletes").Updates(campos).Error
 
 	if err != nil {
 		tx.Rollback()

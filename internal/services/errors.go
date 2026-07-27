@@ -32,6 +32,32 @@ var ErrMissingDiscipline = errors.New("la disciplina es obligatoria")
 // traducen a HTTP 400.
 var ErrInvalidDateRange = errors.New("la fecha de fin no puede ser anterior a la de inicio")
 
+// ErrUsernameTaken indica que el correo elegido ya lo usa otra cuenta. La
+// columna username no tiene UNIQUE en la base (no hay registro publico y solo
+// existe el administrador), asi que esta comprobacion es la unica garantia: dos
+// cuentas con el mismo correo dejarian el login decidiendo por orden de tabla.
+// Los handlers la traducen a HTTP 409.
+var ErrUsernameTaken = errors.New("el correo ya esta en uso")
+
+// ErrMissingUsername indica que se intento dejar la cuenta sin correo de acceso,
+// con lo que nadie podria volver a iniciar sesion. Los handlers la traducen a
+// HTTP 400.
+var ErrMissingUsername = errors.New("el correo es obligatorio")
+
+// ErrInvalidEmail indica que el correo de acceso no tiene forma de correo. Se
+// comprueba en el servicio, sobre el valor ya recortado y en minusculas, para que
+// un espacio de mas al pegarlo no cuente como formato invalido. Los handlers la
+// traducen a HTTP 400.
+var ErrInvalidEmail = errors.New("el correo no tiene un formato valido")
+
+// ErrInvalidCurrentPassword indica que la contrasena actual no coincide. Se pide
+// antes de cambiar la credencial de acceso. Los handlers la traducen a HTTP 400.
+var ErrInvalidCurrentPassword = errors.New("la contrasena actual es incorrecta")
+
+// ErrUserNotFound indica que el token es valido pero el usuario que identifica ya
+// no existe. Los handlers la traducen a HTTP 404.
+var ErrUserNotFound = errors.New("usuario no encontrado")
+
 // isUniqueViolation reconoce el error que devuelve SQLite cuando se viola la
 // restriccion UNIQUE. Actua como red de seguridad: si una cedula duplicada se
 // escapa de la validacion previa, el cliente recibe 409 en lugar de un 500 opaco.

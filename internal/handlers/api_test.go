@@ -719,3 +719,93 @@ func TestInicioDeSesionPorHTTP(t *testing.T) {
 func idTexto(id uint) string {
 	return strconv.FormatUint(uint64(id), 10)
 }
+
+// ── Perfil de la cuenta ─────────────────────────────────────────────────────
+
+func TestPerfilHTTP(t *testing.T) {
+	testutil.Marcar(t, testutil.CajaNegra, "las rutas del perfil como las usa el cliente, incluido que exigen token")
+
+	t.Run("sin token no se puede leer ni cambiar el perfil", func(t *testing.T) {
+		a := nuevaAPI(t)
+		testutil.SilenciarLogs(t)
+
+		testutil.Igual(t, a.llamar(t, "GET", "/users/me", "", nil).Code,
+			http.StatusUnauthorized, "GET /users/me sin token")
+		testutil.Igual(t, a.llamar(t, "PUT", "/users/change-username", "", map[string]string{
+			"currentPassword": "clave-de-prueba", "newUsername": "otro@uneg.edu.ve",
+		}).Code, http.StatusUnauthorized, "PUT /users/change-username sin token")
+	})
+
+	t.Run("devuelve el correo de la sesion y no la contrasena", func(t *testing.T) {
+		a := nuevaAPI(t)
+
+		respuesta := a.llamar(t, "GET", "/users/me", a.token, nil)
+		testutil.Igual(t, respuesta.Code, http.StatusOK, "GET /users/me")
+
+		var envoltura struct {
+			Data schema.UserProfileDTO `json:"data"`
+		}
+		testutil.SinError(t, json.Unmarshal(respuesta.Body.Bytes(), &envoltura), "leer el perfil")
+		testutil.Igual(t, envoltura.Data.Username, "admin", "correo del perfil")
+		if strings.Contains(strings.ToLower(respuesta.Body.String()), "password") {
+			t.Error("la respuesta del perfil no deberia mencionar la contrasena")
+		}
+	})
+
+	t.Run("cambia el correo y el token abierto sigue valiendo", func(t *testing.T) {
+		// El token identifica por id, asi que cambiar el correo no obliga a volver a
+		// entrar: si lo hiciera, el cliente perderia la sesion en mitad del formulario.
+		a := nuevaAPI(t)
+
+		// Con espacios y mayusculas: el correo se normaliza antes de validarlo, asi
+		// que pegarlo desde el gestor de contrasenas no lo convierte en invalido.
+		respuesta := a.llamar(t, "PUT", "/users/change-username", a.token, map[string]string{
+			"currentPassword": "clave-de-prueba", "newUsername": "  Nuevo@UNEG.edu.ve ",
+		})
+		testutil.Igual(t, respuesta.Code, http.StatusOK, "cambiar el correo")
+
+		testutil.Igual(t, a.llamar(t, "GET", "/athletes", a.token, nil).Code,
+			http.StatusOK, "el token de antes del cambio")
+		a.iniciarSesion(t, "nuevo@uneg.edu.ve", "clave-de-prueba") // falla la prueba si no entra
+	})
+
+	t.Run("rechaza los datos invalidos", func(t *testing.T) {
+		a := nuevaAPI(t)
+		testutil.SilenciarLogs(t)
+
+		casos := []struct {
+			nombre   string
+			cuerpo   map[string]string
+			esperado int
+		}{
+			{"contrasena actual incorrecta", map[string]string{
+				"currentPassword": "mala", "newUsername": "otro@uneg.edu.ve"}, http.StatusBadRequest},
+			{"correo sin formato", map[string]string{
+				"currentPassword": "clave-de-prueba", "newUsername": "no-es-un-correo"}, http.StatusBadRequest},
+			{"sin contrasena actual", map[string]string{
+				"newUsername": "otro@uneg.edu.ve"}, http.StatusBadRequest},
+			{"cuerpo vacio", map[string]string{}, http.StatusBadRequest},
+		}
+
+		for _, caso := range casos {
+			t.Run(caso.nombre, func(t *testing.T) {
+				respuesta := a.llamar(t, "PUT", "/users/change-username", a.token, caso.cuerpo)
+				testutil.Igual(t, respuesta.Code, caso.esperado, "codigo de respuesta")
+			})
+		}
+
+		// Ninguno de los rechazos debio tocar la credencial.
+		a.iniciarSesion(t, "admin", "clave-de-prueba")
+	})
+
+	t.Run("cambia la contrasena y el correo se conserva", func(t *testing.T) {
+		a := nuevaAPI(t)
+
+		respuesta := a.llamar(t, "PUT", "/users/change-password", a.token, map[string]string{
+			"oldPassword": "clave-de-prueba", "newPassword": "clave-nueva-larga",
+		})
+		testutil.Igual(t, respuesta.Code, http.StatusOK, "cambiar la contrasena")
+
+		a.iniciarSesion(t, "admin", "clave-nueva-larga") // falla la prueba si no entra
+	})
+}

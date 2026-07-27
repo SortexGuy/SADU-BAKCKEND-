@@ -3,7 +3,9 @@ package services
 import (
 	"errors"
 	"log/slog"
+	"net/mail"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/dgrijalva/jwt-go"
@@ -79,10 +81,19 @@ func (s *UserService) EnsureAdminUser() error {
 
 	var user schema.User
 	err = s.DB.Where("username = ?", username).First(&user).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
 
-	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Create new admin
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// No hay nadie con ese correo, y eso tiene dos lecturas distintas.
+		var cuentas int64
+		if err := s.DB.Model(&schema.User{}).Count(&cuentas).Error; err != nil {
+			return err
+		}
+
+		// Tabla vacia: primer arranque, se crea el administrador.
+		if cuentas == 0 {
 			user = schema.User{
 				Username: username,
 				Password: string(hashedPassword),
@@ -93,7 +104,29 @@ func (s *UserService) EnsureAdminUser() error {
 			slog.Info("usuario administrador creado", "usuario", username)
 			return nil
 		}
-		return err
+
+		// Ya hay una cuenta con otro correo: es la misma de siempre, cambiado desde
+		// el perfil. Crear una segunda con ADMIN_USER dejaria abierta una credencial
+		// paralela con la contrasena del entorno, que es justo lo que el cambio de
+		// correo pretendia cerrar.
+		if os.Getenv("ADMIN_RESET_PASSWORD") != "true" {
+			slog.Info("el administrador usa un correo distinto de ADMIN_USER: no se crea otra cuenta",
+				"admin_user", username, "cuentas", cuentas)
+			return nil
+		}
+
+		// Recuperacion: ADMIN_RESET_PASSWORD devuelve la cuenta mas antigua a las
+		// credenciales del entorno, correo incluido. Es la unica forma de volver a
+		// entrar si el correo nuevo se perdio.
+		if err := s.DB.Order("id").First(&user).Error; err != nil {
+			return err
+		}
+		slog.Warn("restableciendo correo y contrasena del administrador por ADMIN_RESET_PASSWORD=true",
+			"usuario_id", user.ID, "usuario", username)
+		return s.DB.Model(&user).Updates(map[string]interface{}{
+			"username": username,
+			"password": string(hashedPassword),
+		}).Error
 	}
 
 	// El administrador ya existe. No se sobrescribe su contraseña en cada arranque:
@@ -109,6 +142,89 @@ func (s *UserService) EnsureAdminUser() error {
 
 	slog.Warn("restableciendo la contrasena del administrador por ADMIN_RESET_PASSWORD=true", "usuario", username)
 	return s.DB.Model(&user).Update("password", string(hashedPassword)).Error
+}
+
+// esCorreo comprueba que la cadena sea una direccion de correo a secas.
+//
+// mail.ParseAddress por si solo acepta cosas que no sirven como credencial:
+// "Nombre <correo@dominio>", y dominios sin punto como "admin@uneg", que son
+// validos en la norma pero casi siempre son una direccion escrita a medias. Se
+// exige la direccion pelada y un dominio con punto, que es lo mismo que valida el
+// formulario del cliente.
+func esCorreo(valor string) bool {
+	direccion, err := mail.ParseAddress(valor)
+	if err != nil || direccion.Address != valor {
+		return false
+	}
+
+	dominio := valor[strings.LastIndex(valor, "@")+1:]
+	return strings.Contains(dominio, ".") && !strings.HasSuffix(dominio, ".")
+}
+
+// GetProfile devuelve los datos de la cuenta que abrio la sesion. El id sale del
+// token, no de la peticion, asi que nadie puede pedir el perfil de otro.
+func (s *UserService) GetProfile(userID uint) (schema.UserProfileDTO, error) {
+	var user schema.User
+	if err := s.DB.First(&user, userID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return schema.UserProfileDTO{}, ErrUserNotFound
+		}
+		return schema.UserProfileDTO{}, err
+	}
+
+	return schema.UserProfileDTO{ID: user.ID, Username: user.Username}, nil
+}
+
+// ChangeUsername cambia el correo con el que se inicia sesion. Guarda el valor en
+// minusculas y sin espacios porque LoginUser compara la columna tal cual: un
+// correo escrito con mayusculas al guardarlo no volveria a encontrarse al entrar.
+//
+// El token que ya tiene el cliente sigue valido: identifica al usuario por id, y
+// el correo que lleva dentro solo se usa para registrar quien hizo cada cosa. No
+// hace falta volver a iniciar sesion.
+func (s *UserService) ChangeUsername(userID uint, currentPassword, newUsername string) error {
+	nuevo := strings.ToLower(strings.TrimSpace(newUsername))
+	if nuevo == "" {
+		return ErrMissingUsername
+	}
+	if !esCorreo(nuevo) {
+		return ErrInvalidEmail
+	}
+
+	var user schema.User
+	if err := s.DB.First(&user, userID).Error; err != nil {
+		slog.Warn("cambio de correo rechazado", "usuario_id", userID, "motivo", "usuario no encontrado")
+		return ErrUserNotFound
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(currentPassword)); err != nil {
+		slog.Warn("cambio de correo rechazado", "usuario_id", userID, "motivo", "contrasena actual incorrecta")
+		return ErrInvalidCurrentPassword
+	}
+
+	// Pedir el correo que ya se tiene no es un error: no hay nada que escribir.
+	if nuevo == user.Username {
+		return nil
+	}
+
+	var enUso int64
+	if err := s.DB.Model(&schema.User{}).
+		Where("LOWER(username) = ? AND id <> ?", nuevo, userID).
+		Count(&enUso).Error; err != nil {
+		return err
+	}
+	if enUso > 0 {
+		slog.Warn("cambio de correo rechazado", "usuario_id", userID, "motivo", "correo en uso")
+		return ErrUsernameTaken
+	}
+
+	if err := s.DB.Model(&user).Update("username", nuevo).Error; err != nil {
+		slog.Error("no se pudo guardar el correo nuevo", "usuario_id", userID, "error", err.Error())
+		return err
+	}
+
+	slog.Info("correo de acceso cambiado", "usuario_id", userID, "usuario", nuevo)
+	return nil
 }
 
 func (s *UserService) ChangePassword(userID uint, oldPassword, newPassword string) error {

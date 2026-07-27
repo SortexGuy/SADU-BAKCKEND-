@@ -10,5 +10,7 @@ func RegisterUserRoutes(r *gin.RouterGroup, userHandler *handlers.UserHandler) {
 	r.POST("/login", userHandler.LoginUserHandler)
 
 	protected := r.Group("/", middlewares.AuthMiddleware())
+	protected.GET("/me", userHandler.ProfileHandler)
+	protected.PUT("/change-username", userHandler.ChangeUsernameHandler)
 	protected.PUT("/change-password", userHandler.ChangePasswordHandler)
 }

@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/dgrijalva/jwt-go"
@@ -148,6 +149,62 @@ func TestGarantizarAdministrador(t *testing.T) {
 		testutil.SinError(t, err, "iniciar sesion con la contrasena restablecida")
 	})
 
+	t.Run("tras cambiar el correo no crea una segunda cuenta", func(t *testing.T) {
+		// Si el arranque volviera a crear ADMIN_USER, quedaria una credencial paralela
+		// con la contrasena del entorno, que es justo lo que el cambio de correo cierra.
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		t.Setenv("SECRET_KEY", "clave-de-prueba-para-firmar")
+		t.Setenv("ADMIN_USER", "admin@uneg.edu.ve")
+		t.Setenv("ADMIN_PASS", "clave-del-entorno")
+
+		testutil.SinError(t, servicio.EnsureAdminUser(), "primer arranque")
+
+		var usuario schema.User
+		testutil.SinError(t, db.Where("username = ?", "admin@uneg.edu.ve").First(&usuario).Error, "leer el administrador")
+		testutil.SinError(t,
+			servicio.ChangeUsername(usuario.ID, "clave-del-entorno", "otro@uneg.edu.ve"),
+			"cambiar el correo")
+
+		testutil.SinError(t, servicio.EnsureAdminUser(), "segundo arranque")
+
+		var total int64
+		db.Model(&schema.User{}).Count(&total)
+		testutil.Igual(t, total, int64(1), "cuentas tras reiniciar")
+
+		testutil.SilenciarLogs(t)
+		if _, err := servicio.LoginUser("admin@uneg.edu.ve", "clave-del-entorno"); err == nil {
+			t.Error("el correo viejo no deberia volver a existir tras reiniciar")
+		}
+	})
+
+	t.Run("con ADMIN_RESET_PASSWORD tambien restablece el correo", func(t *testing.T) {
+		// Es la via de recuperacion si se pierde el correo nuevo.
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		t.Setenv("SECRET_KEY", "clave-de-prueba-para-firmar")
+		t.Setenv("ADMIN_USER", "admin@uneg.edu.ve")
+		t.Setenv("ADMIN_PASS", "clave-del-entorno")
+
+		testutil.SinError(t, servicio.EnsureAdminUser(), "primer arranque")
+
+		var usuario schema.User
+		testutil.SinError(t, db.Where("username = ?", "admin@uneg.edu.ve").First(&usuario).Error, "leer el administrador")
+		testutil.SinError(t,
+			servicio.ChangeUsername(usuario.ID, "clave-del-entorno", "olvidado@uneg.edu.ve"),
+			"cambiar el correo")
+
+		t.Setenv("ADMIN_RESET_PASSWORD", "true")
+		testutil.SinError(t, servicio.EnsureAdminUser(), "arranque con restablecimiento")
+
+		_, err := servicio.LoginUser("admin@uneg.edu.ve", "clave-del-entorno")
+		testutil.SinError(t, err, "iniciar sesion con las credenciales del entorno")
+
+		var total int64
+		db.Model(&schema.User{}).Count(&total)
+		testutil.Igual(t, total, int64(1), "cuentas tras el restablecimiento")
+	})
+
 	t.Run("sin las variables de entorno no crea nada", func(t *testing.T) {
 		db := testutil.NuevaDB(t)
 		testutil.SilenciarLogs(t)
@@ -226,5 +283,154 @@ func TestCambiarContrasena(t *testing.T) {
 		testutil.SinError(t,
 			bcrypt.CompareHashAndPassword([]byte(guardado.Password), []byte("clave-nueva")),
 			"el hash deberia corresponder a la contrasena nueva")
+	})
+}
+
+func TestPerfil(t *testing.T) {
+	testutil.Marcar(t, testutil.CajaNegra, "lo que la pantalla de perfil necesita, y que la contrasena no viaja en el DTO")
+
+	t.Run("devuelve la cuenta de la sesion", func(t *testing.T) {
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "admin@uneg.edu.ve", "clave-buena")
+
+		perfil, err := servicio.GetProfile(usuario.ID)
+		testutil.SinError(t, err, "leer el perfil")
+		testutil.Igual(t, perfil.ID, usuario.ID, "id del perfil")
+		testutil.Igual(t, perfil.Username, "admin@uneg.edu.ve", "correo del perfil")
+	})
+
+	t.Run("con un usuario inexistente da ErrUserNotFound", func(t *testing.T) {
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+
+		if _, err := servicio.GetProfile(999); !errors.Is(err, services.ErrUserNotFound) {
+			t.Fatalf("se esperaba ErrUserNotFound y se obtuvo %v", err)
+		}
+	})
+}
+
+func TestCambiarCorreo(t *testing.T) {
+	testutil.Marcar(t, testutil.CajaNegra, "contrato del cambio de correo: quien puede hacerlo, con que valores y que pasa con el login")
+
+	t.Setenv("SECRET_KEY", "clave-de-prueba-para-firmar")
+
+	t.Run("con la contrasena correcta cambia la credencial de acceso", func(t *testing.T) {
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "viejo@uneg.edu.ve", "clave-buena")
+
+		testutil.SinError(t,
+			servicio.ChangeUsername(usuario.ID, "clave-buena", "nuevo@uneg.edu.ve"),
+			"cambiar el correo")
+
+		_, err := servicio.LoginUser("nuevo@uneg.edu.ve", "clave-buena")
+		testutil.SinError(t, err, "iniciar sesion con el correo nuevo")
+
+		testutil.SilenciarLogs(t)
+		if _, err := servicio.LoginUser("viejo@uneg.edu.ve", "clave-buena"); err == nil {
+			t.Error("el correo viejo no deberia seguir sirviendo para entrar")
+		}
+	})
+
+	t.Run("el correo se guarda normalizado", func(t *testing.T) {
+		// LoginUser compara la columna tal cual, asi que un correo con mayusculas o
+		// espacios al guardarlo no volveria a encontrarse al entrar.
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "viejo@uneg.edu.ve", "clave-buena")
+
+		testutil.SinError(t,
+			servicio.ChangeUsername(usuario.ID, "clave-buena", "  Nuevo@UNEG.edu.ve  "),
+			"cambiar el correo")
+
+		var guardado schema.User
+		testutil.SinError(t, db.First(&guardado, usuario.ID).Error, "leer el usuario")
+		testutil.Igual(t, guardado.Username, "nuevo@uneg.edu.ve", "correo guardado")
+
+		_, err := servicio.LoginUser("nuevo@uneg.edu.ve", "clave-buena")
+		testutil.SinError(t, err, "iniciar sesion con el correo normalizado")
+	})
+
+	t.Run("con la contrasena incorrecta no cambia nada", func(t *testing.T) {
+		db := testutil.NuevaDB(t)
+		testutil.SilenciarLogs(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "viejo@uneg.edu.ve", "clave-buena")
+
+		err := servicio.ChangeUsername(usuario.ID, "clave-mala", "nuevo@uneg.edu.ve")
+		if !errors.Is(err, services.ErrInvalidCurrentPassword) {
+			t.Fatalf("se esperaba ErrInvalidCurrentPassword y se obtuvo %v", err)
+		}
+
+		if _, err := servicio.LoginUser("viejo@uneg.edu.ve", "clave-buena"); err != nil {
+			t.Error("el correo original deberia seguir siendo valido")
+		}
+	})
+
+	t.Run("un correo ya usado por otra cuenta se rechaza", func(t *testing.T) {
+		// La columna no tiene UNIQUE: esta comprobacion es la unica que evita que dos
+		// cuentas compartan credencial y el login resuelva por orden de tabla.
+		db := testutil.NuevaDB(t)
+		testutil.SilenciarLogs(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "uno@uneg.edu.ve", "clave-buena")
+		crearUsuario(t, servicio, "dos@uneg.edu.ve", "otra-clave")
+
+		err := servicio.ChangeUsername(usuario.ID, "clave-buena", "DOS@uneg.edu.ve")
+		if !errors.Is(err, services.ErrUsernameTaken) {
+			t.Fatalf("se esperaba ErrUsernameTaken y se obtuvo %v", err)
+		}
+	})
+
+	t.Run("pedir el mismo correo no falla", func(t *testing.T) {
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "igual@uneg.edu.ve", "clave-buena")
+
+		testutil.SinError(t,
+			servicio.ChangeUsername(usuario.ID, "clave-buena", "igual@uneg.edu.ve"),
+			"guardar el mismo correo")
+	})
+
+	t.Run("un correo vacio se rechaza", func(t *testing.T) {
+		// Dejar la cuenta sin correo la volveria inaccesible.
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "admin@uneg.edu.ve", "clave-buena")
+
+		err := servicio.ChangeUsername(usuario.ID, "clave-buena", "   ")
+		if !errors.Is(err, services.ErrMissingUsername) {
+			t.Fatalf("se esperaba ErrMissingUsername y se obtuvo %v", err)
+		}
+	})
+
+	t.Run("un correo con formato invalido se rechaza", func(t *testing.T) {
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "admin@uneg.edu.ve", "clave-buena")
+
+		for _, invalido := range []string{"no-es-un-correo", "sin@dominio", "Admin <admin@uneg.edu.ve>", "a@b c.com"} {
+			err := servicio.ChangeUsername(usuario.ID, "clave-buena", invalido)
+			if !errors.Is(err, services.ErrInvalidEmail) {
+				t.Errorf("con %q se esperaba ErrInvalidEmail y se obtuvo %v", invalido, err)
+			}
+		}
+	})
+
+	t.Run("la contrasena sigue funcionando tras cambiar el correo", func(t *testing.T) {
+		db := testutil.NuevaDB(t)
+		servicio := services.UserService{DB: db}
+		usuario := crearUsuario(t, servicio, "viejo@uneg.edu.ve", "clave-buena")
+
+		testutil.SinError(t,
+			servicio.ChangeUsername(usuario.ID, "clave-buena", "nuevo@uneg.edu.ve"),
+			"cambiar el correo")
+		testutil.SinError(t,
+			servicio.ChangePassword(usuario.ID, "clave-buena", "clave-nueva"),
+			"cambiar la contrasena despues")
+
+		_, err := servicio.LoginUser("nuevo@uneg.edu.ve", "clave-nueva")
+		testutil.SinError(t, err, "iniciar sesion con las credenciales nuevas")
 	})
 }

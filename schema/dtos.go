@@ -16,6 +16,26 @@ type ChangePasswordDTO struct {
 	NewPassword string `json:"newPassword" binding:"required,min=8"`
 }
 
+// ChangeUsernameDTO cambia el correo con el que se inicia sesion, que es la
+// columna username: es la credencial que busca LoginUser. Se pide la contrasena
+// actual porque cambiar la credencial de acceso desde una sesion abierta y sin
+// confirmar nada dejaria al duenio de la cuenta fuera si el navegador queda solo.
+//
+// El formato del correo no se valida con `binding:"email"`: esa comprobacion
+// corre antes de normalizar, asi que un correo pegado con un espacio delante se
+// rechazaba con un mensaje generico. Lo valida el servicio, ya recortado.
+type ChangeUsernameDTO struct {
+	CurrentPassword string `json:"currentPassword" binding:"required"`
+	NewUsername     string `json:"newUsername" binding:"required"`
+}
+
+// UserProfileDTO es lo que la pantalla de perfil necesita saber de la sesion
+// abierta. Nunca incluye la contrasena, ni siquiera cifrada.
+type UserProfileDTO struct {
+	ID       uint   `json:"id"`
+	Username string `json:"username"`
+}
+
 type Claims struct {
 	UserId   uint   `json:"user_id" binding:"required"`
 	Username string `json:"username"`

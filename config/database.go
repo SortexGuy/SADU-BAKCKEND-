@@ -1,12 +1,13 @@
 package config
 
 import (
-	"log"
+	"log/slog"
 	"os"
 
 	_ "github.com/tursodatabase/libsql-client-go/libsql"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
+	"uneg.edu.ve/servicio-sadu-back/internal/logging"
 	"uneg.edu.ve/servicio-sadu-back/schema"
 )
 
@@ -14,6 +15,10 @@ var DB *gorm.DB
 
 func ConnectDB() {
 	var err error
+
+	// El logger de GORM se enruta a slog: los errores de base de datos y las
+	// consultas lentas salen en el mismo flujo estructurado que el resto.
+	configuracion := &gorm.Config{Logger: logging.NuevoGORM()}
 
 	tursoUrl := os.Getenv("TURSO_DATABASE_URL")
 	tursoToken := os.Getenv("TURSO_AUTH_TOKEN")
@@ -23,8 +28,8 @@ func ConnectDB() {
 		DB, err = gorm.Open(sqlite.Dialector{
 			DriverName: "libsql",
 			DSN:        dsn,
-		}, &gorm.Config{})
-		log.Default().Printf("Using Turso database at: %s\n", tursoUrl)
+		}, configuracion)
+		slog.Info("base de datos conectada", "destino", "turso", "url", tursoUrl)
 	} else {
 		dbPath := os.Getenv("DATABASE_PATH")
 		if dbPath == "" {
@@ -34,12 +39,13 @@ func ConnectDB() {
 		// las restricciones existen en el DDL pero no se aplican en ejecucion.
 		// Va en el DSN y no como PRAGMA suelto porque el pool abre varias
 		// conexiones y el PRAGMA solo afectaria a una.
-		DB, err = gorm.Open(sqlite.Open(dbPath+"?_foreign_keys=on"), &gorm.Config{})
-		log.Default().Printf("Using local database at: %s\n", dbPath)
+		DB, err = gorm.Open(sqlite.Open(dbPath+"?_foreign_keys=on"), configuracion)
+		slog.Info("base de datos conectada", "destino", "sqlite local", "ruta", dbPath)
 	}
 
 	if err != nil {
-		log.Fatal(err)
+		slog.Error("no se pudo conectar a la base de datos", "error", err.Error())
+		os.Exit(1)
 	}
 
 	logForeignKeyEnforcement()
@@ -51,13 +57,14 @@ func ConnectDB() {
 func logForeignKeyEnforcement() {
 	var enabled int
 	if err := DB.Raw("PRAGMA foreign_keys").Scan(&enabled).Error; err != nil {
-		log.Default().Printf("No se pudo consultar PRAGMA foreign_keys: %v\n", err)
+		slog.Warn("no se pudo consultar PRAGMA foreign_keys", "error", err.Error())
 		return
 	}
 	if enabled == 1 {
-		log.Default().Println("Integridad referencial: ACTIVA (foreign_keys = ON)")
+		slog.Info("integridad referencial activa", "foreign_keys", "on")
 	} else {
-		log.Default().Println("Integridad referencial: INACTIVA (foreign_keys = OFF)")
+		slog.Warn("integridad referencial inactiva: la base no verificara las claves foraneas",
+			"foreign_keys", "off")
 	}
 }
 
@@ -78,26 +85,34 @@ func SyncDB() error {
 		&schema.TeacherDiscipline{},
 	}
 
-	DB.AutoMigrate(models...)
-
-	if err := DB.SetupJoinTable(&schema.Athlete{}, "Disciplines", &schema.AthleteDiscipline{}); err != nil {
+	if err := DB.AutoMigrate(models...); err != nil {
+		slog.Error("fallo la migracion del esquema", "error", err.Error())
 		return err
 	}
-	log.Println("Setup AthleteDiscilpines seeded successfully")
 
-	if err := DB.SetupJoinTable(&schema.Athlete{}, "Teams", &schema.AthleteTeam{}); err != nil {
-		return err
+	// Las cuatro tablas puente llevan columnas propias, asi que se registran
+	// explicitamente: si no, GORM crearia una tabla puente vacia.
+	puentes := []struct {
+		modelo any
+		campo  string
+		puente any
+	}{
+		{&schema.Athlete{}, "Disciplines", &schema.AthleteDiscipline{}},
+		{&schema.Athlete{}, "Teams", &schema.AthleteTeam{}},
+		{&schema.Teacher{}, "Disciplines", &schema.TeacherDiscipline{}},
+		{&schema.Athlete{}, "Events", &schema.AthleteEvent{}},
 	}
-	log.Println("Setup AthleteTeam seeded successfully")
 
-	if err := DB.SetupJoinTable(&schema.Teacher{}, "Disciplines", &schema.TeacherDiscipline{}); err != nil {
-		return err
+	for _, p := range puentes {
+		if err := DB.SetupJoinTable(p.modelo, p.campo, p.puente); err != nil {
+			slog.Error("no se pudo registrar la tabla puente", "campo", p.campo, "error", err.Error())
+			return err
+		}
 	}
-	log.Println("Setup TeacherDisciplines seeded successfully")
 
-	if err := DB.SetupJoinTable(&schema.Athlete{}, "Events", &schema.AthleteEvent{}); err != nil {
-		return err
-	}
-	log.Println("Setup AthleteEvent seeded successfully")
+	slog.Info("esquema sincronizado",
+		"modelos", len(models),
+		"tablas_puente", len(puentes),
+	)
 	return nil
 }

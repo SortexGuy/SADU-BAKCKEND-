@@ -2,7 +2,7 @@ package services
 
 import (
 	"errors"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -26,11 +26,15 @@ func (s *UserService) LoginUser(username, password string) (string, error) {
 
 	// Busca al usuario por el username
 	if err := s.DB.Where("username = ?", username).First(&user).Error; err != nil {
+		// Usuario inexistente: se registra el intento sin revelar si el nombre
+		// existe en la respuesta al cliente.
+		slog.Warn("intento de inicio de sesion fallido", "usuario", username, "motivo", "usuario no encontrado")
 		return "", errors.New("invalid credentials")
 	}
 
 	// Verifica el password usando bcrypt
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password)); err != nil {
+		slog.Warn("intento de inicio de sesion fallido", "usuario", username, "motivo", "contrasena incorrecta")
 		return "", errors.New("invalid credentials")
 	}
 
@@ -46,9 +50,15 @@ func (s *UserService) LoginUser(username, password string) (string, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenString, err := token.SignedString(config.SecretKey())
 	if err != nil {
+		slog.Error("no se pudo firmar el token", "usuario", username, "error", err.Error())
 		return "", err
 	}
 
+	slog.Info("inicio de sesion correcto",
+		"usuario", user.Username,
+		"usuario_id", user.ID,
+		"expira", expirationTime.Format(time.RFC3339),
+	)
 	return tokenString, nil
 }
 
@@ -57,6 +67,8 @@ func (s *UserService) EnsureAdminUser() error {
 	password := os.Getenv("ADMIN_PASS")
 
 	if username == "" || password == "" {
+		slog.Warn("ADMIN_USER o ADMIN_PASS sin definir: no se creara ningun usuario, " +
+			"asi que no sera posible iniciar sesion")
 		return nil
 	}
 
@@ -75,7 +87,11 @@ func (s *UserService) EnsureAdminUser() error {
 				Username: username,
 				Password: string(hashedPassword),
 			}
-			return s.DB.Create(&user).Error
+			if err := s.DB.Create(&user).Error; err != nil {
+				return err
+			}
+			slog.Info("usuario administrador creado", "usuario", username)
+			return nil
 		}
 		return err
 	}
@@ -87,20 +103,23 @@ func (s *UserService) EnsureAdminUser() error {
 	// Para recuperar el acceso si se pierde la contraseña, arrancar una vez con
 	// ADMIN_RESET_PASSWORD=true: eso restablece la contraseña al valor de ADMIN_PASS.
 	if os.Getenv("ADMIN_RESET_PASSWORD") != "true" {
+		slog.Info("usuario administrador ya existe: no se toca su contrasena", "usuario", username)
 		return nil
 	}
 
-	log.Println("ADMIN_RESET_PASSWORD=true: restableciendo la contraseña del administrador a ADMIN_PASS")
+	slog.Warn("restableciendo la contrasena del administrador por ADMIN_RESET_PASSWORD=true", "usuario", username)
 	return s.DB.Model(&user).Update("password", string(hashedPassword)).Error
 }
 
 func (s *UserService) ChangePassword(userID uint, oldPassword, newPassword string) error {
 	var user schema.User
 	if err := s.DB.First(&user, userID).Error; err != nil {
+		slog.Warn("cambio de contrasena rechazado", "usuario_id", userID, "motivo", "usuario no encontrado")
 		return errors.New("user not found")
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(oldPassword)); err != nil {
+		slog.Warn("cambio de contrasena rechazado", "usuario_id", userID, "motivo", "contrasena actual incorrecta")
 		return errors.New("current password is incorrect")
 	}
 
@@ -110,8 +129,10 @@ func (s *UserService) ChangePassword(userID uint, oldPassword, newPassword strin
 	}
 
 	if err := s.DB.Model(&user).Update("password", string(hashedPassword)).Error; err != nil {
+		slog.Error("no se pudo guardar la contrasena nueva", "usuario_id", userID, "error", err.Error())
 		return err
 	}
 
+	slog.Info("contrasena cambiada", "usuario", user.Username, "usuario_id", userID)
 	return nil
 }

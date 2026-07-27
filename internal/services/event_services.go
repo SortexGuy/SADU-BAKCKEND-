@@ -2,6 +2,8 @@ package services
 
 import (
 	"fmt"
+	"log/slog"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -9,6 +11,55 @@ import (
 	"uneg.edu.ve/servicio-sadu-back/helpers"
 	"uneg.edu.ve/servicio-sadu-back/schema"
 )
+
+// ajustarRangoDelTorneo amplia las fechas del torneo para que cubran la del
+// partido: si el partido cae antes del inicio, el inicio se adelanta; si cae
+// despues del fin, el fin se atrasa. Un torneo sin fechas toma la del partido en
+// las dos, que es el mismo criterio con el que el formulario de torneos las
+// sugiere a partir de los partidos elegidos.
+//
+// El rango solo se amplia, nunca se encoge: recortarlo al mover o desvincular un
+// partido borraria fechas puestas a mano, y ademas dejaria fuera a los otros
+// partidos del torneo.
+//
+// Las fechas del torneo se guardan con granularidad de dia (el formulario manda
+// un <input type="date">, medianoche UTC), asi que la del partido se trunca antes
+// de compararla; si no, la hora del ultimo partido terminaria dentro de EndDate.
+func ajustarRangoDelTorneo(tx *gorm.DB, tourneyID schema.RegularIDs, fecha time.Time) error {
+	if tourneyID == 0 || fecha.IsZero() {
+		return nil
+	}
+
+	var torneo schema.Tourney
+	if err := tx.First(&torneo, tourneyID).Error; err != nil {
+		return fmt.Errorf("torneo del partido no encontrado: %w", err)
+	}
+
+	utc := fecha.UTC()
+	dia := time.Date(utc.Year(), utc.Month(), utc.Day(), 0, 0, 0, 0, time.UTC)
+
+	campos := map[string]interface{}{}
+	if torneo.StartDate.IsZero() || dia.Before(torneo.StartDate) {
+		campos["start_date"] = dia
+	}
+	if torneo.EndDate.IsZero() || dia.After(torneo.EndDate) {
+		campos["end_date"] = dia
+	}
+	if len(campos) == 0 {
+		return nil
+	}
+
+	if err := tx.Model(&torneo).Updates(campos).Error; err != nil {
+		return fmt.Errorf("ajustando las fechas del torneo: %w", err)
+	}
+
+	slog.Info("fechas del torneo ajustadas al partido",
+		"torneo_id", torneo.ID,
+		"fecha_partido", dia,
+		"campos", campos,
+	)
+	return nil
+}
 
 type EventService struct {
 	DB *gorm.DB
@@ -92,22 +143,31 @@ func (s *EventService) CreateEvent(dto schema.EventPOSTandPUTDTO) (schema.Event,
 		OppositePoints:       dto.OppositePoints,
 		HomeTeamID:           dto.HomeTeamID,
 		OppositeTeamID:       dto.OppositeTeamID,
-		TourneyID:            dto.TourneyID,
 		ResponsableTeacherID: dto.ResponsableTeacherID,
 		DisciplineID:         dto.DisciplineID,
+	}
+	if dto.TourneyID != nil {
+		event.TourneyID = *dto.TourneyID
 	}
 
 	tx := s.DB.Begin()
 
-	// El torneo es opcional (el formulario de eventos no lo pide). Si no viene, la
-	// columna se omite para que quede en NULL: un 0 no referencia a ningun torneo y
-	// la clave foranea lo rechaza.
+	// El torneo es opcional: un partido puede existir sin pertenecer a ninguno. Si
+	// no viene, o viene en 0, la columna se omite para que quede en NULL, porque un
+	// 0 no referencia a ningun torneo y la clave foranea lo rechaza.
 	omitir := []string{"HomeTeam", "OppositeTeam", "Tourney", "ResponsableTeacher", "Discipline", "Athletes"}
-	if dto.TourneyID == 0 {
+	if event.TourneyID == 0 {
 		omitir = append(omitir, "TourneyID")
 	}
 
 	if err := tx.Omit(omitir...).Create(&event).Error; err != nil {
+		tx.Rollback()
+		return schema.Event{}, err
+	}
+
+	// Un partido que entra al torneo lo estira si cae fuera de sus fechas. Va en la
+	// misma transaccion que el alta: o quedan los dos escritos o ninguno.
+	if err := ajustarRangoDelTorneo(tx, event.TourneyID, event.Date); err != nil {
 		tx.Rollback()
 		return schema.Event{}, err
 	}
@@ -121,6 +181,13 @@ func (s *EventService) CreateEvent(dto schema.EventPOSTandPUTDTO) (schema.Event,
 		Preload("Discipline").
 		First(&event, event.ID)
 
+	slog.Info("evento creado",
+		"evento_id", event.ID,
+		"equipo_local_id", event.HomeTeamID,
+		"equipo_visitante_id", event.OppositeTeamID,
+		"torneo_id", event.TourneyID,
+		"disciplina_id", event.DisciplineID,
+	)
 	return event, nil
 }
 func (s *EventService) EditEvent(ctx *gin.Context, dto schema.EventPOSTandPUTDTO) (schema.Event, error) {
@@ -145,17 +212,42 @@ func (s *EventService) EditEvent(ctx *gin.Context, dto schema.EventPOSTandPUTDTO
 		"ResponsableTeacherID": dto.ResponsableTeacherID,
 		"DisciplineID":         dto.DisciplineID,
 	}
-	// Sin torneo se guarda NULL, no 0. Ver CreateEvent.
-	if dto.TourneyID == 0 {
-		campos["TourneyID"] = nil
-	} else {
-		campos["TourneyID"] = dto.TourneyID
+	// El torneo tiene tres casos, y por eso el DTO lo declara como puntero:
+	//
+	//   ausente (nil) la peticion no habla del torneo, la columna no se toca. Es lo
+	//                 que evita que editar el marcador de un partido lo saque del
+	//                 torneo al que pertenece.
+	//   0             se pide quitarlo del torneo: se guarda NULL, no 0, porque un 0
+	//                 no referencia a ningun torneo y la clave foranea lo rechaza.
+	//   valor         se asigna a ese torneo.
+	if dto.TourneyID != nil {
+		if *dto.TourneyID == 0 {
+			campos["TourneyID"] = nil
+		} else {
+			campos["TourneyID"] = *dto.TourneyID
+		}
+	}
+
+	// El torneo al que queda vinculado el partido se calcula antes de guardar:
+	// despues, `existingEvent` ya trae los valores nuevos y no se distingue de los
+	// viejos.
+	torneoEfectivo := existingEvent.TourneyID
+	if dto.TourneyID != nil {
+		torneoEfectivo = *dto.TourneyID
 	}
 
 	tx := s.DB.Begin()
 	err := tx.Model(&existingEvent).Omit("Athletes").Updates(campos).Error
 
 	if err != nil {
+		tx.Rollback()
+		return schema.Event{}, err
+	}
+
+	// Cambiar la fecha del partido, o moverlo a otro torneo, tambien estira el rango
+	// del torneo destino. El torneo del que sale no se toca: encogerlo borraria
+	// fechas puestas a mano y dejaria fuera a sus otros partidos.
+	if err := ajustarRangoDelTorneo(tx, torneoEfectivo, dto.Date); err != nil {
 		tx.Rollback()
 		return schema.Event{}, err
 	}

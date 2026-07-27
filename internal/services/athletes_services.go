@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 
@@ -165,6 +166,14 @@ func (s *AthleteService) CreateAthlete(a schema.Athlete) (schema.Athlete, error)
 		return a, err
 	}
 
+	slog.Info("atleta creado",
+		"atleta_id", a.ID,
+		"cedula", a.GovID,
+		"carrera_id", a.MajorID,
+		"disciplinas", len(a.Disciplines),
+		"equipos", len(a.Teams),
+		"eventos", len(a.Events),
+	)
 	return a, nil
 }
 
@@ -230,5 +239,8 @@ func (s *AthleteService) DeleteAthlete(ctx *gin.Context) error {
 	if result.RowsAffected == 0 {
 		return fmt.Errorf("atleta no encontrado: %d", athleteID)
 	}
+
+	// Borrado logico: la fila permanece con deleted_at y queda fuera de las consultas.
+	slog.Info("atleta eliminado", "atleta_id", athleteID)
 	return nil
 }

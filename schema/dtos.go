@@ -126,21 +126,28 @@ type TourneyGetBareDTO struct {
 }
 
 type TourneyPOSTandPUTDTO struct {
-	Name         string       `json:"Name"`
-	Status       Status       `json:"Status"`
-	Events       []RegularIDs `json:"EventsIDs"`
+	Name   string `json:"Name"`
+	Status Status `json:"Status"`
+	// Los partidos del torneo, por identificador. La etiqueta sigue la convencion
+	// del resto del archivo (AthleteIDs, DisciplineIDs) y es la que envia el
+	// cliente. Una lista vacia en un PUT significa "sin partidos"; su ausencia,
+	// "no toques los partidos" (ver UpdateTourney).
+	Events       []RegularIDs `json:"EventIDs"`
 	StartDate    time.Time    `json:"StartDate"`
 	EndDate      time.Time    `json:"EndDate"`
 	DisciplineID RegularIDs   `json:"DisciplineID"`
 }
 
 type TourneyGetFullDTO struct {
-	ID        RegularIDs    `json:"ID"`
-	Name      string        `json:"Name"`
-	Status    Status        `json:"Status"`
-	Events    []EventGetDTO `json:"Events"`
-	StartDate time.Time
-	EndDate   time.Time
+	ID             RegularIDs    `json:"ID"`
+	Name           string        `json:"Name"`
+	Status         Status        `json:"Status"`
+	Events         []EventGetDTO `json:"Events"`
+	StartDate      time.Time     `json:"StartDate"`
+	EndDate        time.Time     `json:"EndDate"`
+	TotalEvents    uint          `json:"TotalEvents"`
+	DisciplineID   RegularIDs    `json:"DisciplineID"`
+	DisciplineName string        `json:"DisciplineName,omitempty"`
 }
 
 type EventGetDTO struct {
@@ -160,16 +167,19 @@ type EventGetDTO struct {
 }
 
 type EventPOSTandPUTDTO struct {
-	Name                 string     `json:"Name"`
-	Date                 time.Time  `json:"Date"`
-	Status               string     `json:"Status"`
-	Observation          string     `json:"Observation"`
-	Ubication            string     `json:"Ubication"`
-	HomePoints           uint8      `json:"HomePoints"`
-	OppositePoints       uint8      `json:"OppositePoints"`
-	HomeTeamID           RegularIDs `json:"HomeTeamID" binding:"required"`
-	OppositeTeamID       RegularIDs `json:"OppositeTeamID" binding:"required"`
-	TourneyID            RegularIDs `json:"TourneyID"`
-	ResponsableTeacherID RegularIDs `json:"ResponsableTeacherID" binding:"required"`
-	DisciplineID         RegularIDs `json:"DisciplineID" binding:"required"`
+	Name           string     `json:"Name"`
+	Date           time.Time  `json:"Date"`
+	Status         string     `json:"Status"`
+	Observation    string     `json:"Observation"`
+	Ubication      string     `json:"Ubication"`
+	HomePoints     uint8      `json:"HomePoints"`
+	OppositePoints uint8      `json:"OppositePoints"`
+	HomeTeamID     RegularIDs `json:"HomeTeamID" binding:"required"`
+	OppositeTeamID RegularIDs `json:"OppositeTeamID" binding:"required"`
+	// El torneo es opcional y se distingue por puntero: nil es "no vino en la
+	// peticion" (al editar, la columna no se toca) y 0 es "sin torneo" (se guarda
+	// NULL). Sin esa distincion, editar un partido lo sacaba de su torneo.
+	TourneyID            *RegularIDs `json:"TourneyID"`
+	ResponsableTeacherID RegularIDs  `json:"ResponsableTeacherID" binding:"required"`
+	DisciplineID         RegularIDs  `json:"DisciplineID" binding:"required"`
 }

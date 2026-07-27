@@ -22,6 +22,16 @@ var ErrMissingGovID = errors.New("la cedula es obligatoria")
 // ninguna carrera real. Los handlers la traducen a HTTP 400.
 var ErrMissingMajor = errors.New("la carrera es obligatoria")
 
+// ErrMissingDiscipline indica que se intento crear un torneo sin disciplina. La
+// columna discipline_id no admite NULL y tiene clave foranea, asi que un 0 no
+// referencia a ninguna disciplina real. Los handlers la traducen a HTTP 400.
+var ErrMissingDiscipline = errors.New("la disciplina es obligatoria")
+
+// ErrInvalidDateRange indica que la fecha de fin es anterior a la de inicio. Un
+// rango invertido dejaria el torneo sin duracion representable. Los handlers la
+// traducen a HTTP 400.
+var ErrInvalidDateRange = errors.New("la fecha de fin no puede ser anterior a la de inicio")
+
 // isUniqueViolation reconoce el error que devuelve SQLite cuando se viola la
 // restriccion UNIQUE. Actua como red de seguridad: si una cedula duplicada se
 // escapa de la validacion previa, el cliente recibe 409 en lugar de un 500 opaco.

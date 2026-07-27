@@ -19,6 +19,25 @@ func NewTourneyHandler(service *services.TourneyServices) *TourneyHandler {
 	return &TourneyHandler{service: service}
 }
 
+// respondioErrorDeTorneo traduce los errores conocidos de guardar un torneo al
+// codigo que corresponde y devuelve true si ya escribio la respuesta. Centraliza
+// el mapeo porque crear y editar comparten las mismas validaciones.
+func respondioErrorDeTorneo(ctx *gin.Context, err error) bool {
+	switch {
+	case errors.Is(err, services.ErrMissingDiscipline):
+		helpers.SendError(ctx, http.StatusBadRequest, "Disciplina requerida", "Indica la disciplina del torneo antes de guardarlo.")
+	case errors.Is(err, services.ErrInvalidDateRange):
+		helpers.SendError(ctx, http.StatusBadRequest, "Rango de fechas inválido", "La fecha de fin del torneo no puede ser anterior a la de inicio.")
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		helpers.SendError(ctx, http.StatusNotFound, "Torneo no encontrado", "El ID del torneo no corresponde a ningún registro.")
+	case services.IsInvalidReference(err):
+		helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el torneo: la disciplina o alguno de los partidos indicados no existe.")
+	default:
+		return false
+	}
+	return true
+}
+
 func (h *TourneyHandler) GetAllTourneyHandler(ctx *gin.Context) {
 	name := ctx.Query("name")
 	status := ctx.Query("status")
@@ -46,7 +65,7 @@ func (h *TourneyHandler) CreateTourneyHandler(ctx *gin.Context) {
 	var dto schema.TourneyPOSTandPUTDTO
 
 	if err := ctx.ShouldBindJSON(&dto); err != nil {
-		helpers.SendError(ctx, http.StatusBadRequest, "JSON inválido: "+err.Error(), "El torneo ya fue creado anteriormente o no fue encontrado.")
+		helpers.SendError(ctx, http.StatusBadRequest, "JSON inválido: "+err.Error(), "Los datos enviados para crear el torneo no tienen el formato esperado.")
 		return
 	}
 	newTourney := schema.Tourney{
@@ -64,11 +83,10 @@ func (h *TourneyHandler) CreateTourneyHandler(ctx *gin.Context) {
 	}
 	createdTourney, err := h.service.CreateTourney(newTourney)
 	if err != nil {
-		if services.IsInvalidReference(err) {
-			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el torneo: la disciplina indicada no existe.")
+		if respondioErrorDeTorneo(ctx, err) {
 			return
 		}
-		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "El inesperado a la hora de crear torneo.")
+		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Ocurrió un problema inesperado al crear el torneo.")
 		return
 	}
 	helpers.SendSucces(ctx, "CREATING-TOURNEY-SUCCESFULLY", createdTourney)
@@ -92,19 +110,22 @@ func (h *TourneyHandler) UpdateTourneyHandler(ctx *gin.Context) {
 	}
 
 
-		for _, id := range dto.Events {
-			tourneyUpdate.Events = append(tourneyUpdate.Events, schema.Event{
-				Model: gorm.Model{ID: uint(id)},
-			})
-		}
-	
-	updatedTourney, err := h.service.UpdateTourney(tourneyUpdate, ctx)
+	for _, id := range dto.Events {
+		tourneyUpdate.Events = append(tourneyUpdate.Events, schema.Event{
+			Model: gorm.Model{ID: uint(id)},
+		})
+	}
+
+	// La lista de partidos solo se reemplaza si la peticion la trae: encoding/json
+	// deja dto.Events en nil cuando la clave no viene, y en una porcion vacia
+	// cuando viene como []. Sin esa distincion no habria forma de dejar un torneo
+	// sin partidos.
+	updatedTourney, err := h.service.UpdateTourney(tourneyUpdate, dto.Events != nil, ctx)
 	if err != nil {
-		if services.IsInvalidReference(err) {
-			helpers.SendError(ctx, http.StatusBadRequest, "Referencia inválida", "No se pudo guardar el torneo: la disciplina indicada no existe.")
+		if respondioErrorDeTorneo(ctx, err) {
 			return
 		}
-		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "El inesperado a la hora de editar torneo.")
+		helpers.SendError(ctx, http.StatusInternalServerError, "Error interno del servidor", "Ocurrió un problema inesperado al editar el torneo.")
 		return
 
 	}
